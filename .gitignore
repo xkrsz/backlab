@@ -1,2 +1,6 @@
 .idea
 vendor
+.vscode
+example/debug
+example/test.zip
+.DS_Store
