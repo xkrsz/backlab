@@ -1,53 +1,73 @@
+// Package backlab makes backing up your GitLab instance easy.
 package backlab
 
 import (
-	"gopkg.in/kothar/go-backblaze.v0"
 	"os"
 	"path/filepath"
-	"fmt"
+
+	"github.com/dchest/uniuri"
+	"gopkg.in/kothar/go-backblaze.v0"
 )
 
+// Credentials is a type alias for backblaze.Credentials.
 type Credentials backblaze.Credentials
 
+// Config is a parameter used in Init for configuring backlab.
 type Config struct {
 	Credentials
 	BucketName string
 }
 
+// Backlab is a main struct.
 type Backlab struct {
 	Config
 
 	b2 *backblaze.B2
 }
 
+// Init configures connection with Backblaze and saves configuration to Backlab instance.
 func Init(config Config) (*Backlab, error) {
 	b := &Backlab{
 		Config: config,
 	}
 
 	b2, err := backblaze.NewB2(backblaze.Credentials{
-		AccountID: b.AccountID,
+		AccountID:      b.AccountID,
 		ApplicationKey: b.ApplicationKey,
 	})
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 
 	b.b2 = b2
 
 	return b, nil
 }
 
-func (b *Backlab) Backup(archivePath string) {
-	var bucket *backblaze.Bucket
+// Backup backups a file to Backblaze.
+func (b *Backlab) Backup(archivePath string) error {
+	var (
+		bucket *backblaze.Bucket
+		err    error
+	)
 	if &b.BucketName == nil {
-		bucket, _ = b.b2.CreateBucket("gitlab-backups", backblaze.AllPrivate)
+		randomString := uniuri.New()
+		bucket, err = b.b2.CreateBucket("backlab-gitlab-backups-"+randomString, backblaze.AllPrivate)
 	} else {
-		bucket, _ = b.b2.Bucket(b.BucketName)
+		bucket, err = b.b2.Bucket(b.BucketName)
+	}
+	if err != nil {
+		return err
 	}
 
 	reader, _ := os.Open(archivePath)
 	name := filepath.Base(archivePath)
 	metadata := make(map[string]string)
 
-	file, _ := bucket.UploadFile(name, metadata, reader)
-	fmt.Println(file)
+	_, err = bucket.UploadFile(name, metadata, reader)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
