@@ -25,8 +25,8 @@ type Backlab struct {
 	b2 *backblaze.B2
 }
 
-// Init configures connection with Backblaze and saves configuration to Backlab instance.
-func Init(config Config) (*Backlab, error) {
+// New configures connection with Backblaze and saves configuration to Backlab instance.
+func New(config Config) (*Backlab, error) {
 	b := &Backlab{
 		Config: config,
 	}
