@@ -7,6 +7,8 @@ import (
 
 	"github.com/dchest/uniuri"
 	"gopkg.in/kothar/go-backblaze.v0"
+	"os/exec"
+	"io/ioutil"
 )
 
 // Credentials is a type alias for backblaze.Credentials.
@@ -16,8 +18,9 @@ type Credentials backblaze.Credentials
 type Config struct {
 	Credentials
 	BucketName string
-	// PreserveFor defines how long should the backups be kept in a bucket. Doesn't delete any by default.
+	// PreserveFor defines how long should the backups be kept in a bucket and locally. Doesn't delete any by default.
 	PreserveFor int
+	BackupPath string
 }
 
 // Backlab is a main struct.
@@ -47,7 +50,7 @@ func New(config Config) (*Backlab, error) {
 }
 
 // Backup backups a file to Backblaze.
-func (b *Backlab) Backup(archivePath string) error {
+func (b *Backlab) BackupArchive(archivePath string) error {
 	var (
 		bucket *backblaze.Bucket
 		err    error
@@ -74,4 +77,16 @@ func (b *Backlab) Backup(archivePath string) error {
 	// scan bucket for backups older than specified and delete them
 
 	return nil
+}
+
+func (b *Backlab) CreateBackup() error {
+	cmd := exec.Command("gitlab-rake", "gitlab:backup:create")
+	err := cmd.Run()
+	return err
+}
+
+func (b *Backlab) RemoveOldLocalBackups() error {
+	files, _ := ioutil.ReadDir(b.BackupPath)
+
+	// TODO remove files older than now - PreserveFor
 }
