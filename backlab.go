@@ -16,6 +16,8 @@ type Credentials backblaze.Credentials
 type Config struct {
 	Credentials
 	BucketName string
+	// PreserveFor defines how long should the backups be kept in a bucket. Doesn't delete any by default.
+	PreserveFor int
 }
 
 // Backlab is a main struct.
@@ -68,6 +70,8 @@ func (b *Backlab) Backup(archivePath string) error {
 	if err != nil {
 		return err
 	}
+
+	// scan bucket for backups older than specified and delete them
 
 	return nil
 }
