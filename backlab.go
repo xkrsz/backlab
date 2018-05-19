@@ -9,6 +9,8 @@ import (
 	"gopkg.in/kothar/go-backblaze.v0"
 	"os/exec"
 	"io/ioutil"
+	"strconv"
+	"time"
 )
 
 // Credentials is a type alias for backblaze.Credentials.
@@ -19,8 +21,8 @@ type Config struct {
 	Credentials
 	BucketName string
 	// PreserveFor defines how long should the backups be kept in a bucket and locally. Doesn't delete any by default.
-	PreserveFor int
-	BackupPath string
+	PreserveFor int64
+	BackupPath *string
 }
 
 // Backlab is a main struct.
@@ -49,7 +51,13 @@ func New(config Config) (*Backlab, error) {
 	return b, nil
 }
 
-// Backup backups a file to Backblaze.
+// Backup creates a new backup, removes old backups, and uploads the new backup to Backblaze
+func (b *Backlab) Backup() {
+	b.CreateBackup()
+	b.RemoveOldLocalBackups()
+}
+
+// BackupArchive backups a file to Backblaze.
 func (b *Backlab) BackupArchive(archivePath string) error {
 	var (
 		bucket *backblaze.Bucket
@@ -86,7 +94,71 @@ func (b *Backlab) CreateBackup() error {
 }
 
 func (b *Backlab) RemoveOldLocalBackups() error {
-	files, _ := ioutil.ReadDir(b.BackupPath)
+	files, err := b.getBackupFiles()
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		fp := *b.BackupPath + "/" + f.Name()
+		fi, err := os.Stat(fp)
+		if err != nil {
+			return err
+		}
+		if fi.IsDir() {
+			continue
+		}
+		backupTimestampString := fi.Name()[:10]
+		backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
+		if err != nil {
+			return err
+		}
 
-	// TODO remove files older than now - PreserveFor
+		backupExpiryTimestamp := time.Now().Unix() - b.PreserveFor
+		if backupTimestamp > backupExpiryTimestamp {
+			continue
+		}
+
+		err = os.Remove(fp)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *Backlab) getBackupFiles() ([]os.FileInfo, error) {
+	return ioutil.ReadDir(*b.BackupPath)
+}
+
+func (b *Backlab) newestBackupFile() (*string, error) {
+	files, err := b.getBackupFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	var latestTimestamp int64 = 0
+	var latestBackupPath *string
+	for _, f := range files {
+		fp := *b.BackupPath + "/" + f.Name()
+		fi, err := os.Stat(fp)
+		if err != nil {
+			return nil, err
+		}
+		if fi.IsDir() {
+			continue
+		}
+		backupTimestampString := fi.Name()[:10]
+		backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		if backupTimestamp > latestTimestamp {
+			latestTimestamp = backupTimestamp
+			latestBackupPath = &fp
+		}
+	}
+
+	return latestBackupPath, nil
 }
