@@ -87,41 +87,30 @@ func (b *Backlab) BackupArchive(archivePath string) error {
 	return nil
 }
 
+// CreateBackup creates a local GitLab backup.
 func (b *Backlab) CreateBackup() error {
 	cmd := exec.Command("gitlab-rake", "gitlab:backup:create")
 	err := cmd.Run()
 	return err
 }
 
+// RemoveOldLocalBackups removes old local GitLab backups from BackupPath directory.
 func (b *Backlab) RemoveOldLocalBackups() error {
-	files, err := b.getBackupFiles()
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		fp := *b.BackupPath + "/" + f.Name()
-		fi, err := os.Stat(fp)
-		if err != nil {
-			return err
-		}
-		if fi.IsDir() {
-			continue
-		}
-		backupTimestampString := fi.Name()[:10]
-		backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
-		if err != nil {
-			return err
-		}
-
+	err := b.loopOverBackupFiles(func (f os.FileInfo, fp string, backupTimestamp int64) error {
 		backupExpiryTimestamp := time.Now().Unix() - b.PreserveFor
 		if backupTimestamp > backupExpiryTimestamp {
-			continue
+			return nil
 		}
 
-		err = os.Remove(fp)
+		err := os.Remove(fp)
 		if err != nil {
 			return err
 		}
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -132,33 +121,45 @@ func (b *Backlab) getBackupFiles() ([]os.FileInfo, error) {
 }
 
 func (b *Backlab) newestBackupFile() (*string, error) {
-	files, err := b.getBackupFiles()
-	if err != nil {
-		return nil, err
-	}
-
 	var latestTimestamp int64 = 0
 	var latestBackupPath *string
-	for _, f := range files {
-		fp := *b.BackupPath + "/" + f.Name()
-		fi, err := os.Stat(fp)
-		if err != nil {
-			return nil, err
-		}
-		if fi.IsDir() {
-			continue
-		}
-		backupTimestampString := fi.Name()[:10]
-		backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
+	b.loopOverBackupFiles(func (f os.FileInfo, fp string, backupTimestamp int64) error {
 		if backupTimestamp > latestTimestamp {
 			latestTimestamp = backupTimestamp
 			latestBackupPath = &fp
 		}
-	}
+
+		return nil
+	})
 
 	return latestBackupPath, nil
+}
+
+func (b *Backlab) loopOverBackupFiles(loopAction func(f os.FileInfo, fp string, backupTimestamp int64) error) error {
+	files, err := b.getBackupFiles()
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		fp := *b.BackupPath + "/" + f.Name()
+		if err != nil {
+			return err
+		}
+		if f.IsDir() {
+			continue
+		}
+
+		backupTimestampString := f.Name()[:10]
+		backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
+		if err != nil {
+			return err
+		}
+
+		err = loopAction(f, fp, backupTimestamp)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
