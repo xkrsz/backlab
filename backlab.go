@@ -70,12 +70,29 @@ func New(config Config) *Backlab {
 }
 
 // Backup creates a new backup, removes old backups, and uploads the new backup to Backblaze
-func (b *Backlab) Backup() {
-	b.CreateBackup()
-	b.RemoveOldLocalBackups()
-	archivePath, _ := b.newestBackupFile()
-	b.UploadBackup(archivePath)
-	b.RemoveOldRemoteBackups()
+func (b *Backlab) Backup() error {
+	err := b.CreateBackup()
+	if err != nil {
+		return err
+	}
+	err = b.RemoveOldLocalBackups()
+	if err != nil {
+		return err
+	}
+	archivePath, err := b.newestBackupFile()
+	if err != nil {
+		return err
+	}
+	err = b.UploadBackup(archivePath)
+	if err != nil {
+		return err
+	}
+	err = b.RemoveOldRemoteBackups()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // BackupArchive backups a file to Backblaze.
@@ -86,7 +103,9 @@ func (b *Backlab) UploadBackup(archivePath string) error {
 	metadata := make(map[string]string)
 
 	_, err := b.bucket.UploadFile(name, metadata, reader)
-	must(err)
+	if err != nil {
+		return err
+	}
 
 	// scan bucket for backups older than specified and delete them
 
@@ -101,7 +120,7 @@ func (b *Backlab) CreateBackup() error {
 }
 
 // RemoveOldLocalBackups removes old local GitLab backups from BackupPath directory.
-func (b *Backlab) RemoveOldLocalBackups() {
+func (b *Backlab) RemoveOldLocalBackups() error {
 	err := b.loopOverBackupFiles(func (f os.FileInfo, fp string, backupTimestamp int64) error {
 		backupExpiryTimestamp := time.Now().Unix() - b.PreserveFor
 		if backupTimestamp > backupExpiryTimestamp {
@@ -109,11 +128,56 @@ func (b *Backlab) RemoveOldLocalBackups() {
 		}
 
 		err := os.Remove(fp)
-		must(err)
+		if err != nil {
+			return err
+		}
 
 		return nil
 	})
-	must(err)
+	return err
+}
+
+// RemoveOldRemoteBackups removes old backups from Backblaze, based on Config.PreserveFor value.
+func (b *Backlab) RemoveOldRemoteBackups() error {
+	result, err := b.bucket.ListFileVersions("", "", 100)
+	if err != nil {
+		return err
+	}
+
+	var removedFiles []BackblazeFile
+
+	for _, f := range result.Files {
+		backupTimestamp, err := b.extractTimestampFromFilename(f.Name)
+		if err != nil {
+			return err
+		}
+
+		if *backupTimestamp > b.backupExpiryTimestamp {
+			continue
+		}
+
+		_, err = b.bucket.DeleteFileVersion(f.Name, f.ID)
+		if err != nil {
+			return err
+		}
+
+		removedFiles = append(removedFiles, BackblazeFile{
+			f.Name,
+			f.ID,
+		})
+	}
+
+	return nil
+}
+
+func (b *Backlab) extractTimestampFromFilename(filename string) (*int64, error) {
+	backupTimestampString := filename[:10]
+	backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	return &backupTimestamp, nil
 }
 
 func (b *Backlab) getBackupFiles() ([]os.FileInfo, error) {
@@ -123,7 +187,7 @@ func (b *Backlab) getBackupFiles() ([]os.FileInfo, error) {
 func (b *Backlab) newestBackupFile() (string, error) {
 	var latestTimestamp int64 = 0
 	var latestBackupPath *string
-	b.loopOverBackupFiles(func (f os.FileInfo, fp string, backupTimestamp int64) error {
+	err := b.loopOverBackupFiles(func (f os.FileInfo, fp string, backupTimestamp int64) error {
 		if backupTimestamp > latestTimestamp {
 			latestTimestamp = backupTimestamp
 			latestBackupPath = &fp
@@ -132,7 +196,7 @@ func (b *Backlab) newestBackupFile() (string, error) {
 		return nil
 	})
 
-	return *latestBackupPath, nil
+	return *latestBackupPath, err
 }
 
 func (b *Backlab) loopOverBackupFiles(loopAction func(f os.FileInfo, fp string, backupTimestamp int64) error) error {
@@ -150,46 +214,18 @@ func (b *Backlab) loopOverBackupFiles(loopAction func(f os.FileInfo, fp string, 
 		}
 
 		backupTimestamp, err := b.extractTimestampFromFilename(f.Name())
-		must(err)
+		if err != nil {
+			return err
+		}
+
+
 		err = loopAction(f, fp, *backupTimestamp)
-		must(err)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
-}
-
-func (b *Backlab) RemoveOldRemoteBackups() {
-	result, err := b.bucket.ListFileVersions("", "", 100)
-	must(err)
-
-	var removedFiles []BackblazeFile
-
-	for _, f := range result.Files {
-		backupTimestamp, err := b.extractTimestampFromFilename(f.Name)
-		must(err)
-
-		if *backupTimestamp > b.backupExpiryTimestamp {
-			continue
-		}
-
-		_, err = b.bucket.DeleteFileVersion(f.Name, f.ID)
-		must(err)
-
-		removedFiles = append(removedFiles, BackblazeFile{
-			f.Name,
-			f.ID,
-		})
-	}
-}
-
-func (b *Backlab) extractTimestampFromFilename(filename string) (*int64, error) {
-	backupTimestampString := filename[:10]
-	backupTimestamp, err := strconv.ParseInt(backupTimestampString, 10, 64)
-	if err != nil {
-		return nil, err
-	}
-
-	return &backupTimestamp, nil
 }
 
 func must(err error) {
