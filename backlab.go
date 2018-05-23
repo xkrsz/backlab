@@ -71,28 +71,21 @@ func New(config Config) *Backlab {
 
 // Backup creates a new backup, removes old backups, and uploads the new backup to Backblaze
 func (b *Backlab) Backup() error {
-	err := b.CreateBackup()
-	if err != nil {
+	if err := b.CreateBackup(); err != nil {
 		return err
 	}
-	err = b.RemoveOldLocalBackups()
-	if err != nil {
+	if err := b.RemoveOldLocalBackups(); err != nil {
 		return err
 	}
 	archivePath, err := b.newestBackupFile()
 	if err != nil {
 		return err
 	}
-	err = b.UploadBackup(archivePath)
-	if err != nil {
-		return err
-	}
-	err = b.RemoveOldRemoteBackups()
-	if err != nil {
+	if err := b.UploadBackup(archivePath); err != nil {
 		return err
 	}
 
-	return nil
+	return b.RemoveOldRemoteBackups()
 }
 
 // BackupArchive backups a file to Backblaze.
@@ -127,13 +120,9 @@ func (b *Backlab) RemoveOldLocalBackups() error {
 			return nil
 		}
 
-		err := os.Remove(fp)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return os.Remove(fp)
 	})
+
 	return err
 }
 
@@ -218,9 +207,7 @@ func (b *Backlab) loopOverBackupFiles(loopAction func(f os.FileInfo, fp string, 
 			return err
 		}
 
-
-		err = loopAction(f, fp, *backupTimestamp)
-		if err != nil {
+		if err = loopAction(f, fp, *backupTimestamp); err != nil {
 			return err
 		}
 	}
