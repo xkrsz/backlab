@@ -108,8 +108,7 @@ func (b *Backlab) UploadBackup(archivePath string) error {
 // CreateBackup creates a local GitLab backup.
 func (b *Backlab) CreateBackup() error {
 	cmd := exec.Command("gitlab-rake", "gitlab:backup:create")
-	err := cmd.Run()
-	return err
+	return cmd.Run()
 }
 
 // RemoveOldLocalBackups removes old local GitLab backups from BackupPath directory.
@@ -157,6 +156,26 @@ func (b *Backlab) RemoveOldRemoteBackups() error {
 	}
 
 	return nil
+}
+
+func (b *Backlab) Restore() error {
+	b.stopServicesUsingDB()
+	// exec.Command("gitlab-rake gitlab:backup:restore BACKUP=1493107454_2017_04_25_9.1.0")
+
+	return nil
+}
+
+func (b *Backlab) stopServicesUsingDB() error {
+	cmd := exec.Command("gitlab-ctl", "stop", "unicorn")
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	cmd = exec.Command("gitlab-ctl", "stop", "sidekiq")
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	cmd = exec.Command("gitlab-ctl", "status")
+	return cmd.Run()
 }
 
 func (b *Backlab) extractTimestampFromFilename(filename string) (*int64, error) {
